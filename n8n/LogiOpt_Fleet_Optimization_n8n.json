@@ -1,0 +1,193 @@
+{
+  "name": "LogiOpt AI - Fleet Optimization Summary",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "2f0d2549-c923-4296-9aed-e7b1e1abe69e",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "E:\\WAI_Term_4\\LWM\\data\\optimized_shipments.csv",
+        "options": {}
+      },
+      "id": "4826c1d2-39ad-4ea8-a170-7abb7bb24583",
+      "name": "Read Optimized Shipments",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "csv",
+        "binaryPropertyName": "data",
+        "options": {
+          "headerRow": true
+        }
+      },
+      "id": "598d1005-3a0e-4c76-a6ec-185c71cdfb8c",
+      "name": "Extract CSV",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map(item => item.json);\n\nconst num = (v) => {\n  const n = Number(v);\n  return Number.isFinite(n) ? n : 0;\n};\n\nconst totalShipments = rows.length;\nconst currentCost = rows.reduce((s, r) => s + num(r.Current_Cost), 0);\nconst optimizedCost = rows.reduce((s, r) => s + num(r.Optimized_Cost), 0);\nconst totalSaving = currentCost - optimizedCost;\nconst savingPercentage = currentCost ? (totalSaving / currentCost) * 100 : 0;\n\nconst vehicleMap = {};\n\nfor (const r of rows) {\n  const vehicle = r.Optimized_Vehicle || 'Unknown';\n\n  if (!vehicleMap[vehicle]) {\n    vehicleMap[vehicle] = {\n      vehicle,\n      shipments: 0,\n      totalLoadKg: 0,\n      utilizationSum: 0\n    };\n  }\n\n  vehicleMap[vehicle].shipments += 1;\n  vehicleMap[vehicle].totalLoadKg += num(r.Load_KG);\n  vehicleMap[vehicle].utilizationSum += num(r['Vehicle_Utilization_%']);\n}\n\nconst vehicleUtilization = Object.values(vehicleMap)\n  .map(v => ({\n    vehicle: v.vehicle,\n    shipments: v.shipments,\n    totalLoadKg: Number(v.totalLoadKg.toFixed(2)),\n    averageUtilization: Number((v.utilizationSum / v.shipments).toFixed(2))\n  }))\n  .sort((a, b) => b.averageUtilization - a.averageUtilization);\n\nconst highestUtilized = vehicleUtilization[0] || null;\n\nconst summaryText = `\nTotal shipments: ${totalShipments}\nCurrent transportation cost: ${currentCost.toFixed(2)}\nOptimized transportation cost: ${optimizedCost.toFixed(2)}\nTotal cost saving: ${totalSaving.toFixed(2)}\nCost saving percentage: ${savingPercentage.toFixed(2)}%\n\nVehicle utilization:\n${vehicleUtilization.map(v =>\n  `${v.vehicle}: ${v.shipments} shipments, ${v.totalLoadKg} kg total load, ${v.averageUtilization}% average utilization`\n).join('\\n')}\n\nHighest average utilization:\n${highestUtilized ? `${highestUtilized.vehicle} at ${highestUtilized.averageUtilization}%` : 'Not available'}\n`.trim();\n\nreturn [{\n  json: {\n    totalShipments,\n    currentCost: Number(currentCost.toFixed(2)),\n    optimizedCost: Number(optimizedCost.toFixed(2)),\n    totalSaving: Number(totalSaving.toFixed(2)),\n    savingPercentage: Number(savingPercentage.toFixed(2)),\n    vehicleUtilization,\n    highestUtilized,\n    summaryText\n  }\n}];",
+        "mode": "runOnceForAllItems",
+        "language": "javaScript"
+      },
+      "id": "30be3e06-cb6a-42ca-ac34-7c2e5e376cdd",
+      "name": "Prepare Optimization Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        740,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "text",
+        "operation": "response",
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "responses": {
+          "values": [
+            {
+              "role": "user",
+              "content": "You are a logistics operations manager.\n\nAnalyze the vehicle allocation optimization results below.\n\nOptimization results:\n{{ $json.summaryText }}\n\nPrepare a concise management summary.\n\nUse exactly this structure:\n\nLOGIOPT AI - DAILY OPTIMIZATION SUMMARY\n\n1. Cost Performance\nState the current transportation cost, optimized transportation cost, total saving and percentage reduction.\n\n2. Fleet Utilization\nIdentify the most heavily utilized vehicle and mention its utilization. Briefly mention the other vehicle utilization figures only if useful.\n\n3. Management Recommendation\nGive ONE practical recommendation based only on the provided results.\n\nFormatting requirements:\nReturn plain text only.\nDo not use Markdown.\nDo not use asterisks.\nDo not use hashtags.\nDo not use bullet points.\nDo not use Markdown headings.\nUse simple numbered sections and short paragraphs.\nDo not invent numbers.\nDo not claim savings beyond the provided data.\nThis is decision support and should be reviewed by the logistics manager.",
+              "type": "text"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6e268116-4c05-4223-b835-e2692f678e4f",
+      "name": "Message a model",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [
+        1020,
+        300
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "1477731454",
+        "text": "=📊 <b>LOGIOPT AI - DAILY OPTIMIZATION SUMMARY</b>\n\n{{ $('Message a model').item.json.output[0].content[0].text }}\n\n⚠️ Please review the recommendation before taking operational action.\n\n— LogiOpt AI",
+        "replyMarkup": "none",
+        "additionalFields": {
+          "parse_mode": "HTML",
+          "appendAttribution": false
+        }
+      },
+      "id": "83b36372-646b-4712-a18a-a89cb3da3828",
+      "name": "Send Optimization Summary",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1300,
+        300
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Optimized Shipments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Optimized Shipments": {
+      "main": [
+        [
+          {
+            "node": "Extract CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract CSV": {
+      "main": [
+        [
+          {
+            "node": "Prepare Optimization Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Optimization Summary": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "Send Optimization Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "8a96e16e-6b78-4e8c-845a-1ec17b562ea9",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

@@ -1,0 +1,181 @@
+{
+  "name": "LogiOpt AI - Shipment Risk Alert",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "logiopt/shipment",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "1",
+      "name": "New Shipment Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "logiopt-shipment-webhook"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/predict",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"Shipment_ID\": \"{{ $json.Shipment_ID }}\",\n  \"Distance_KM\": {{ $json.Distance_KM }},\n  \"Carrier\": \"{{ $json.Carrier }}\",\n  \"Vehicle_ID\": \"{{ $json.Vehicle_ID }}\",\n  \"Load_KG\": {{ $json.Load_KG }},\n  \"Traffic\": \"{{ $json.Traffic }}\",\n  \"Weather\": \"{{ $json.Weather }}\",\n  \"Priority\": \"{{ $json.Priority }}\",\n  \"Delivery_Window_Hours\": {{ $json.Delivery_Window_Hours }}\n}",
+        "options": {}
+      },
+      "id": "2",
+      "name": "Predict Shipment Risk",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "risk-condition",
+              "leftValue": "={{ $json.delay_probability }}",
+              "rightValue": 0.7,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "3",
+      "name": "High Risk?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        520,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_OPENAI_API_KEY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-4o-mini\",\n  \"temperature\": 0.2,\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are a logistics operations manager assisting an e-commerce company. Give concise, practical decision support. Do not invent facts. Do not claim that a shipment will definitely be delayed.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Analyze this high-risk shipment. Shipment ID: {{ $json.shipment_id }}. Delay probability: {{ $json.delay_probability }}. Risk level: {{ $json.risk_level }}. Destination: {{ $('New Shipment Webhook').item.json.Destination }}. Distance: {{ $('New Shipment Webhook').item.json.Distance_KM }} km. Carrier: {{ $('New Shipment Webhook').item.json.Carrier }}. Vehicle: {{ $('New Shipment Webhook').item.json.Vehicle_ID }}. Load: {{ $('New Shipment Webhook').item.json.Load_KG }} kg. Traffic: {{ $('New Shipment Webhook').item.json.Traffic }}. Weather: {{ $('New Shipment Webhook').item.json.Weather }}. Priority: {{ $('New Shipment Webhook').item.json.Priority }}. Delivery window: {{ $('New Shipment Webhook').item.json.Delivery_Window_Hours }} hours. Explain the main risk factors and recommend ONE practical managerial action.\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "4",
+      "name": "GenAI Risk Explanation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/botYOUR_TELEGRAM_BOT_TOKEN/sendMessage",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": \"YOUR_TELEGRAM_CHAT_ID\",\n  \"text\": \"\ud83d\udea8 LOGIOPT AI \u2014 HIGH RISK SHIPMENT\\n\\nShipment: {{ $('New Shipment Webhook').item.json.Shipment_ID }}\\nDestination: {{ $('New Shipment Webhook').item.json.Destination }}\\nCarrier: {{ $('New Shipment Webhook').item.json.Carrier }}\\nDelay Probability: {{ $('Predict Shipment Risk').item.json.delay_probability }}\\nRisk Level: {{ $('Predict Shipment Risk').item.json.risk_level }}\\n\\nAI Assessment:\\n{{ $json.choices[0].message.content }}\\n\\nPlease review the recommendation before taking operational action.\"\n}",
+        "options": {}
+      },
+      "id": "5",
+      "name": "Send Manager Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1040,
+        -120
+      ]
+    }
+  ],
+  "connections": {
+    "New Shipment Webhook": {
+      "main": [
+        [
+          {
+            "node": "Predict Shipment Risk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Predict Shipment Risk": {
+      "main": [
+        [
+          {
+            "node": "High Risk?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "High Risk?": {
+      "main": [
+        [
+          {
+            "node": "GenAI Risk Explanation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "GenAI Risk Explanation": {
+      "main": [
+        [
+          {
+            "node": "Send Manager Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "logiopt-v1",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}
